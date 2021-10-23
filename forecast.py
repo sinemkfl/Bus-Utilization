@@ -6,25 +6,28 @@ from matplotlib import pyplot
 from statsmodels.tsa.ar_model import AutoReg
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import MinMaxScaler
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import LSTM
 
-def make_dataset(dataset, back=1):
+EPOCH = 10
+BACK = 1
+MUN = 10
+DENSE = 1
+
+
+def make_dataset(data, back):
+    
     dataX, dataY = [], []
-    for i in range(len(dataset)-back-1):
+    for i in range(len(data)-back-1):
         a = dataset[i:(i+back), 0]
         dataX.append(a)
-        dataY.append(dataset[i + back, 0])
+        dataY.append(data[i + back, 0])
+        
     return np.array(dataX), np.array(dataY)
-  
-  my_input = pd.read_csv('municipality_bus_utilization.csv')
+
+my_input = pd.read_csv('municipality_bus_utilization.csv')
 trimmed_input = my_input.drop('total_capacity',axis=1)
 sorted_input = trimmed_input.sort_values(["municipality_id", "timestamp"])
 
-EPOCH = 30
-BACK = 2
-MUN = 10
+
 rmse = [[0]*MUN,[0]*MUN]
 
 for i in range(0,MUN): #for each municipality
@@ -46,6 +49,7 @@ for i in range(0,MUN): #for each municipality
     #partition over time to train and test
     train = del_mun.loc[del_mun['timestamp'] < "2017-08-05"].reset_index()    
     test = del_mun.loc[del_mun['timestamp'] >= "2017-08-05"].reset_index()
+    
         
     ## ##################################
     # train autoregression and predict last two week usages
@@ -74,31 +78,34 @@ for i in range(0,MUN): #for each municipality
     
     testset = test.drop(['timestamp','municipality_id','index'],axis=1).values
     testset = testset.astype('float32')
-    
+    compare_test = testset
+        
     scaler = MinMaxScaler(feature_range=(0, 1))
     train_RNN_data = scaler.fit_transform(trainset)    
     test_RNN_data = scaler.fit_transform(testset)    
-        
-    back = BACK
-    trainX, trainY = make_dataset(train_RNN_data, back)
-    testX, testY   = make_dataset(test_RNN_data, back)
+  
+    trainX, trainY = make_dataset(train_RNN_data, BACK)
+    testX, testY   = make_dataset(test_RNN_data, BACK)
 
     trainX = np.reshape(trainX, (trainX.shape[0], 1, trainX.shape[1]))
-    testX  = np.reshape(testX, (testX.shape[0], 1, testX.shape[1]))    
+    testX  = np.reshape(testX, (testX.shape[0], 1, testX.shape[1]))
     
     #RNN MODEL
-    RNN_model = Sequential()
-    RNN_model.add(LSTM(4, input_shape=(1, back)))
-    RNN_model.add(Dense(1))
-    RNN_model.compile(loss='mean_squared_error', optimizer='adam')
-    RNN_model.fit(trainX, trainY, epochs=EPOCH, batch_size=1, verbose=2)
+    print('For municipality %d the RNN is running' % i)
+    #1 input, a hidden layer with 64 neurons, and an output layer that makes a single value prediction. 
+    #The default sigmoid activation function is used. The network is trained for EPOCHS
+    RNN_model = tf.keras.models.Sequential([tf.keras.layers.LSTM(64, input_shape=(1, back)),
+    tf.keras.layers.Dense(units=DENSE)])
+    RNN_model.compile(loss='mean_squared_error')
+    RNN_model.fit(trainX, trainY, epochs=EPOCH, batch_size=1)
     
     RNN_predictions = RNN_model.predict(testX)
-    RNN_predictions = scaler.inverse_transform(RNN_predictions)
-    testY = scaler.inverse_transform([testY])
+    RNN_predictions = scaler.inverse_transform(RNN_predictions)    
+    
+    min_len = min(len(compare_test),len(RNN_predictions[:,0]))
     
     #the root mean square error for the RNN model
-    rmse[1][i] =mt.sqrt(mean_squared_error(testY[0], RNN_predictions[:,0]))
+    rmse[1][i] =mt.sqrt(mean_squared_error(compare_test[:min_len], RNN_predictions[:,0][:min_len]))
     
     ## #############################################3
     # plot results for each municipality
