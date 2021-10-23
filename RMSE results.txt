@@ -1,2 +1,0 @@
-The total RMSE for AR Method is 242.6
-The total RMSE for RNN Method is 133.5
